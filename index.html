@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Minecraft Tick Subtitle Studio</title>
+  <style>
+    @import url('https://fonts.cdnfonts.com/css/minecraft-4');
+
+    :root {
+      --bg: #10131a;
+      --panel: #171b24;
+      --panel-alt: #1e2430;
+      --text: #ecf0ff;
+      --muted: #a0adc7;
+      --accent: #67b3ff;
+      --good: #41d183;
+      --warn: #ffbe55;
+      --danger: #ff6767;
+      --border: #2a3243;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at top, #1a2232 0%, var(--bg) 48%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .container {
+      width: min(1200px, 96vw);
+      margin: 0 auto;
+      padding: 20px 0 48px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, var(--panel-alt), var(--panel));
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.32);
+    }
+
+    h1, h2, h3 { margin: 0 0 12px; }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.2rem; }
+    h3 { font-size: 1rem; color: var(--muted); }
+
+    .subtle { color: var(--muted); font-size: 0.93rem; }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    input, select, button, textarea {
+      background: #121722;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font-size: 0.95rem;
+      font-family: inherit;
+    }
+
+    input[type="number"] { width: 120px; }
+
+    button {
+      cursor: pointer;
+      background: #1d2a40;
+      transition: background 0.15s;
+    }
+    button:hover { background: #243757; }
+
+    button.good { background: #1f5239; }
+    button.warn { background: #5a4623; }
+    button.danger { background: #5a2a2a; }
+
+    #waveCanvas {
+      width: 100%;
+      height: 150px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f141e;
+      display: block;
+    }
+
+    .metric {
+      background: #111722;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      min-width: 140px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 10px;
+    }
+
+    .col-4 { grid-column: span 4; }
+    .col-8 { grid-column: span 8; }
+    .col-12 { grid-column: span 12; }
+
+    @media (max-width: 900px) {
+      .col-4, .col-8 { grid-column: span 12; }
+    }
+
+    .actor-card, .subtitle-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: #111723;
+      margin-bottom: 10px;
+    }
+
+    .actor-header {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .actor-header img {
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      image-rendering: pixelated;
+      border: 1px solid #2f3e57;
+      background: #0c0f16;
+    }
+
+    .preview {
+      background: #0b0f17;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 90px;
+      display: grid;
+      gap: 4px;
+      align-content: center;
+      text-shadow: 2px 2px 0 #000;
+      font-family: 'Minecraft', 'Minecraftia', 'Press Start 2P', monospace;
+      font-size: 20px;
+      line-height: 1.2;
+      image-rendering: pixelated;
+    }
+
+    #exportOutput {
+      width: 100%;
+      min-height: 230px;
+      resize: vertical;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Minecraft Tick Subtitle Studio</h1>
+      <p class="subtle">Open this file directly in your browser. Upload audio, inspect wave/ticks, assign actors, and export subtitles in YAML format.</p>
+    </div>
+
+    <div class="card">
+      <h2>1) Audio Player + Tick Timeline</h2>
+      <div class="row">
+        <label>Audio file
+          <input id="audioFile" type="file" accept="audio/*" />
+        </label>
+        <audio id="audioPlayer" controls></audio>
+      </div>
+      <canvas id="waveCanvas" width="1150" height="150"></canvas>
+      <div class="row" style="margin-top:10px;">
+        <div class="metric">Current time: <strong id="currentTime">0.000s</strong></div>
+        <div class="metric">Current tick: <strong id="currentTick">0</strong></div>
+        <div class="metric">Duration ticks: <strong id="durationTicks">0</strong></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="card col-4">
+        <h2>2) Actors</h2>
+        <div class="row">
+          <label>Name
+            <input id="actorName" type="text" placeholder="Robert" />
+          </label>
+          <label>Minecraft color code
+            <input id="actorColor" type="text" placeholder="&e" maxlength="2" value="&f" />
+          </label>
+          <label>Minecraft username (skin/avatar)
+            <input id="actorMinecraftUser" type="text" placeholder="Notch" />
+          </label>
+          <button id="addActor" class="good">Add actor</button>
+        </div>
+        <p class="subtle">Color supports formats like &f, &b, &6, &e. Avatar is loaded from mc-heads.net.</p>
+        <div id="actorList"></div>
+      </section>
+
+      <section class="card col-8">
+        <h2>3) Subtitles</h2>
+        <div class="row" style="margin-bottom: 8px;">
+          <button id="addSubtitle" class="good">Add subtitle block</button>
+          <button id="generateExport" class="warn">Generate export</button>
+          <button id="copyExport">Copy export</button>
+        </div>
+        <div id="subtitleList"></div>
+      </section>
+
+      <section class="card col-12">
+        <h2>4) Minecraft preview</h2>
+        <div id="preview" class="preview">
+          <div id="previewLine1">§fActor: Line 1</div>
+          <div id="previewLine2">Line 2</div>
+        </div>
+      </section>
+
+      <section class="card col-12">
+        <h2>5) Export YAML</h2>
+        <textarea id="exportOutput" readonly></textarea>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const TICKS_PER_SECOND = 20;
+    const MC_COLORS = {
+      '0': '#000000', '1': '#0000AA', '2': '#00AA00', '3': '#00AAAA',
+      '4': '#AA0000', '5': '#AA00AA', '6': '#FFAA00', '7': '#AAAAAA',
+      '8': '#555555', '9': '#5555FF', 'a': '#55FF55', 'b': '#55FFFF',
+      'c': '#FF5555', 'd': '#FF55FF', 'e': '#FFFF55', 'f': '#FFFFFF'
+    };
+
+    const state = {
+      audioBuffer: null,
+      actors: [],
+      subtitles: []
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const audioFile = $('audioFile');
+    const audioPlayer = $('audioPlayer');
+    const waveCanvas = $('waveCanvas');
+    const waveCtx = waveCanvas.getContext('2d');
+
+    function sanitizeYamlText(text) {
+      return (text || '').replace(/'/g, "''").replace(/\n/g, ' ');
+    }
+
+    function tickFromTime(seconds) {
+      return Math.round(seconds * TICKS_PER_SECOND);
+    }
+
+    function colorFromCode(code) {
+      if (!code || code.length < 2 || code[0] !== '&') return MC_COLORS.f;
+      return MC_COLORS[code[1].toLowerCase()] || MC_COLORS.f;
+    }
+
+    function codeToSection(code) {
+      if (!code || code.length < 2 || code[0] !== '&') return '§f';
+      return `§${code[1].toLowerCase()}`;
+    }
+
+    function actorAvatar(username) {
+      const safe = encodeURIComponent(username || 'Steve');
+      return `https://mc-heads.net/avatar/${safe}/64`;
+    }
+
+    function refreshMetrics() {
+      const t = audioPlayer.currentTime || 0;
+      $('currentTime').textContent = `${t.toFixed(3)}s`;
+      $('currentTick').textContent = String(tickFromTime(t));
+      const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : 0;
+      $('durationTicks').textContent = String(tickFromTime(duration));
+      drawWave();
+    }
+
+    function drawWave() {
+      const width = waveCanvas.width;
+      const height = waveCanvas.height;
+      waveCtx.clearRect(0, 0, width, height);
+      waveCtx.fillStyle = '#0f141e';
+      waveCtx.fillRect(0, 0, width, height);
+
+      if (!state.audioBuffer) {
+        waveCtx.fillStyle = '#8994ac';
+        waveCtx.font = '14px sans-serif';
+        waveCtx.fillText('Upload an audio file to render waveform.', 16, 28);
+        return;
+      }
+
+      const data = state.audioBuffer.getChannelData(0);
+      const step = Math.ceil(data.length / width);
+      const amp = height / 2;
+
+      waveCtx.strokeStyle = '#4ba2ff';
+      waveCtx.lineWidth = 1;
+      waveCtx.beginPath();
+
+      for (let i = 0; i < width; i++) {
+        let min = 1;
+        let max = -1;
+        const start = i * step;
+        const end = Math.min(start + step, data.length);
+        for (let j = start; j < end; j++) {
+          const v = data[j];
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+        waveCtx.moveTo(i, (1 + min) * amp);
+        waveCtx.lineTo(i, (1 + max) * amp);
+      }
+      waveCtx.stroke();
+
+      const progress = Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0
+        ? audioPlayer.currentTime / audioPlayer.duration
+        : 0;
+      const x = progress * width;
+      waveCtx.strokeStyle = '#ff6060';
+      waveCtx.lineWidth = 2;
+      waveCtx.beginPath();
+      waveCtx.moveTo(x, 0);
+      waveCtx.lineTo(x, height);
+      waveCtx.stroke();
+    }
+
+    async function handleAudioFile(file) {
+      if (!file) return;
+      const url = URL.createObjectURL(file);
+      audioPlayer.src = url;
+
+      const arr = await file.arrayBuffer();
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      state.audioBuffer = await context.decodeAudioData(arr.slice(0));
+      drawWave();
+      refreshMetrics();
+    }
+
+    function renderActors() {
+      const list = $('actorList');
+      list.innerHTML = '';
+      state.actors.forEach((actor, idx) => {
+        const card = document.createElement('div');
+        card.className = 'actor-card';
+        card.innerHTML = `
+          <div class="actor-header">
+            <img src="${actorAvatar(actor.minecraftUser)}" alt="Avatar of ${actor.name}" />
+            <div>
+              <strong style="color:${colorFromCode(actor.colorCode)}">${actor.name}</strong>
+              <div class="subtle">${actor.colorCode} • ${actor.minecraftUser || 'No username set'}</div>
+            </div>
+          </div>
+          <button class="danger" data-remove-actor="${idx}">Remove actor</button>
+        `;
+        list.appendChild(card);
+      });
+      renderSubtitles();
+    }
+
+    function addActor() {
+      const name = $('actorName').value.trim();
+      const colorCode = $('actorColor').value.trim() || '&f';
+      const minecraftUser = $('actorMinecraftUser').value.trim();
+      if (!name) return alert('Actor name is required.');
+      if (!/^&[0-9a-fA-F]$/.test(colorCode)) return alert('Color must use Minecraft format like &f, &b, &6.');
+
+      state.actors.push({ name, colorCode, minecraftUser });
+      $('actorName').value = '';
+      $('actorMinecraftUser').value = '';
+      renderActors();
+    }
+
+    function actorOptions(selected) {
+      const base = '<option value="">Select actor</option>';
+      return base + state.actors.map((a, i) =>
+        `<option value="${i}" ${String(i) === String(selected) ? 'selected' : ''}>${a.name} (${a.colorCode})</option>`
+      ).join('');
+    }
+
+    function renderSubtitles() {
+      const list = $('subtitleList');
+      list.innerHTML = '';
+      state.subtitles.forEach((sub, idx) => {
+        const card = document.createElement('div');
+        card.className = 'subtitle-card';
+        card.innerHTML = `
+          <div class="row">
+            <label>Actor
+              <select data-field="actorIndex" data-idx="${idx}">${actorOptions(sub.actorIndex)}</select>
+            </label>
+            <label>Start tick
+              <input type="number" min="0" step="1" data-field="startTick" data-idx="${idx}" value="${sub.startTick}" />
+            </label>
+            <label>End tick
+              <input type="number" min="0" step="1" data-field="endTick" data-idx="${idx}" value="${sub.endTick}" />
+            </label>
+            <button data-set-start="${idx}">Set start = current tick</button>
+            <button data-set-end="${idx}">Set end = current tick</button>
+            <button class="danger" data-remove-subtitle="${idx}">Delete</button>
+          </div>
+          <div class="row" style="margin-top:8px;">
+            <label style="flex:1; min-width: 300px;">Line 1
+              <input type="text" data-field="line1" data-idx="${idx}" value="${sub.line1 || ''}" placeholder="Speech line 1" />
+            </label>
+            <label style="flex:1; min-width: 300px;">Line 2
+              <input type="text" data-field="line2" data-idx="${idx}" value="${sub.line2 || ''}" placeholder="Speech line 2" />
+            </label>
+          </div>
+        `;
+        list.appendChild(card);
+      });
+      refreshPreview();
+    }
+
+    function addSubtitle() {
+      const tick = tickFromTime(audioPlayer.currentTime || 0);
+      state.subtitles.push({
+        actorIndex: '',
+        startTick: tick,
+        endTick: tick + 20,
+        line1: '',
+        line2: ''
+      });
+      renderSubtitles();
+    }
+
+    function generateExport() {
+      const sorted = [...state.subtitles].sort((a, b) => a.startTick - b.startTick);
+      const lines = ['subtitles:'];
+
+      sorted.forEach((sub, i) => {
+        const actor = state.actors[sub.actorIndex];
+        const actorPrefix = actor
+          ? `${codeToSection(actor.colorCode)}${actor.name}: `
+          : '';
+
+        lines.push(`  '${i}':`);
+        lines.push(`    startTick: ${Number(sub.startTick) || 0}`);
+        lines.push(`    endTick: ${Number(sub.endTick) || 0}`);
+        lines.push(`    line1: '${sanitizeYamlText(actorPrefix + (sub.line1 || ''))}'`);
+        lines.push(`    line2: '${sanitizeYamlText(sub.line2 || '')}'`);
+      });
+
+      $('exportOutput').value = lines.join('\n');
+    }
+
+    function refreshPreview() {
+      const first = state.subtitles[0];
+      if (!first) {
+        $('previewLine1').textContent = '§fActor: Line 1';
+        $('previewLine1').style.color = MC_COLORS.f;
+        $('previewLine2').textContent = 'Line 2';
+        $('previewLine2').style.color = MC_COLORS.f;
+        return;
+      }
+
+      const actor = state.actors[first.actorIndex];
+      const color = actor ? colorFromCode(actor.colorCode) : MC_COLORS.f;
+      const line1 = (actor ? `${codeToSection(actor.colorCode)}${actor.name}: ` : '') + (first.line1 || '...');
+      $('previewLine1').textContent = line1;
+      $('previewLine2').textContent = first.line2 || '';
+      $('previewLine1').style.color = color;
+      $('previewLine2').style.color = MC_COLORS.f;
+    }
+
+    audioFile.addEventListener('change', (e) => handleAudioFile(e.target.files[0]));
+    audioPlayer.addEventListener('timeupdate', refreshMetrics);
+    audioPlayer.addEventListener('loadedmetadata', refreshMetrics);
+    audioPlayer.addEventListener('play', () => {
+      const loop = () => {
+        if (!audioPlayer.paused) {
+          refreshMetrics();
+          requestAnimationFrame(loop);
+        }
+      };
+      requestAnimationFrame(loop);
+    });
+
+    $('addActor').addEventListener('click', addActor);
+    $('addSubtitle').addEventListener('click', addSubtitle);
+    $('generateExport').addEventListener('click', generateExport);
+
+    $('copyExport').addEventListener('click', async () => {
+      const text = $('exportOutput').value;
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Export copied to clipboard.');
+      } catch {
+        alert('Clipboard is blocked by the browser. Copy manually from the text area.');
+      }
+    });
+
+    document.body.addEventListener('click', (e) => {
+      const target = e.target;
+      const removeActor = target.getAttribute('data-remove-actor');
+      const removeSubtitle = target.getAttribute('data-remove-subtitle');
+      const setStart = target.getAttribute('data-set-start');
+      const setEnd = target.getAttribute('data-set-end');
+
+      if (removeActor !== null) {
+        const idx = Number(removeActor);
+        state.actors.splice(idx, 1);
+        state.subtitles.forEach((sub) => {
+          if (sub.actorIndex === idx) sub.actorIndex = '';
+          else if (sub.actorIndex > idx) sub.actorIndex -= 1;
+        });
+        renderActors();
+      }
+
+      if (removeSubtitle !== null) {
+        state.subtitles.splice(Number(removeSubtitle), 1);
+        renderSubtitles();
+      }
+
+      if (setStart !== null) {
+        const idx = Number(setStart);
+        state.subtitles[idx].startTick = tickFromTime(audioPlayer.currentTime || 0);
+        renderSubtitles();
+      }
+
+      if (setEnd !== null) {
+        const idx = Number(setEnd);
+        state.subtitles[idx].endTick = tickFromTime(audioPlayer.currentTime || 0);
+        renderSubtitles();
+      }
+    });
+
+    document.body.addEventListener('input', (e) => {
+      const target = e.target;
+      const field = target.getAttribute('data-field');
+      const idx = target.getAttribute('data-idx');
+      if (field === null || idx === null) return;
+
+      const sub = state.subtitles[Number(idx)];
+      if (!sub) return;
+
+      if (field === 'startTick' || field === 'endTick') {
+        sub[field] = Math.max(0, Number(target.value) || 0);
+      } else if (field === 'actorIndex') {
+        sub[field] = target.value === '' ? '' : Number(target.value);
+      } else {
+        sub[field] = target.value;
+      }
+
+      refreshPreview();
+    });
+
+    drawWave();
+    refreshMetrics();
+  </script>
+</body>
+</html>
