@@ -33,16 +33,16 @@
     .container {
       width: min(1200px, 96vw);
       margin: 0 auto;
-      padding: 20px 0 48px;
+      padding: 12px 0 20px;
       display: grid;
-      gap: 16px;
+      gap: 10px;
     }
 
     .card {
       background: linear-gradient(180deg, var(--panel-alt), var(--panel));
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 16px;
+      padding: 12px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.32);
     }
 
@@ -92,11 +92,12 @@
 
     #waveCanvas {
       width: 100%;
-      height: 150px;
+      height: 130px;
       border-radius: 8px;
       border: 1px solid var(--border);
       background: #0f141e;
       display: block;
+      cursor: pointer;
     }
 
     .metric {
@@ -129,6 +130,17 @@
       margin-bottom: 10px;
     }
 
+    .list-scroll {
+      max-height: 270px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .subtitle-card.active {
+      border-color: #4ba2ff;
+      box-shadow: 0 0 0 1px #4ba2ff inset;
+    }
+
     .actor-header {
       display: flex;
       gap: 10px;
@@ -155,10 +167,32 @@
       gap: 4px;
       align-content: center;
       text-shadow: 2px 2px 0 #000;
-      font-family: 'Minecraft', 'Minecraftia', 'Press Start 2P', monospace;
+      font-family: 'Minecraft Regular', 'Minecraft', 'Minecraftia', monospace;
       font-size: 20px;
       line-height: 1.2;
       image-rendering: pixelated;
+    }
+
+    .preview-line {
+      color: #fff;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .preview-actor { font-weight: 700; }
+
+    .compact { font-size: 0.85rem; color: var(--muted); }
+
+    .editor-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    @media (max-width: 900px) {
+      .editor-grid { grid-template-columns: 1fr; }
     }
 
     #exportOutput {
@@ -185,6 +219,7 @@
         <audio id="audioPlayer" controls></audio>
       </div>
       <canvas id="waveCanvas" width="1150" height="150"></canvas>
+      <p class="subtle" style="margin:8px 0 0;">Click in the waveform to jump the audio. Colored overlays show subtitle ranges by actor color.</p>
       <div class="row" style="margin-top:10px;">
         <div class="metric">Current time: <strong id="currentTime">0.000s</strong></div>
         <div class="metric">Current tick: <strong id="currentTick">0</strong></div>
@@ -208,25 +243,34 @@
           <button id="addActor" class="good">Add actor</button>
         </div>
         <p class="subtle">Color supports formats like &f, &b, &6, &e. Avatar is loaded from mc-heads.net.</p>
-        <div id="actorList"></div>
+        <div id="actorList" class="list-scroll"></div>
       </section>
 
       <section class="card col-8">
-        <h2>3) Subtitles</h2>
+        <h2>3) Subtitle editor + preview</h2>
         <div class="row" style="margin-bottom: 8px;">
           <button id="addSubtitle" class="good">Add subtitle block</button>
+          <button id="prevSubtitle">Previous</button>
+          <button id="nextSubtitle">Next</button>
           <button id="generateExport" class="warn">Generate export</button>
           <button id="copyExport">Copy export</button>
         </div>
-        <div id="subtitleList"></div>
+        <div class="editor-grid">
+          <div id="subtitleEditor" class="subtitle-card"></div>
+          <div>
+            <h3 style="margin-top:2px;">Minecraft preview</h3>
+            <div id="preview" class="preview">
+              <div id="previewLine1" class="preview-line"><span id="previewActor" class="preview-actor">Actor:</span><span id="previewText1">Line 1</span></div>
+              <div id="previewLine2" class="preview-line">Line 2</div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="card col-12">
-        <h2>4) Minecraft preview</h2>
-        <div id="preview" class="preview">
-          <div id="previewLine1">§fActor: Line 1</div>
-          <div id="previewLine2">Line 2</div>
-        </div>
+        <h2>4) Subtitle blocks</h2>
+        <p class="subtle">Large projects stay manageable: the list is compact and scrollable while editing is done above.</p>
+        <div id="subtitleList" class="list-scroll"></div>
       </section>
 
       <section class="card col-12">
@@ -248,7 +292,9 @@
     const state = {
       audioBuffer: null,
       actors: [],
-      subtitles: []
+      subtitles: [],
+      activeSubtitleIndex: -1,
+      editingActorIndex: -1
     };
 
     const $ = (id) => document.getElementById(id);
@@ -326,6 +372,19 @@
       }
       waveCtx.stroke();
 
+      if (Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0) {
+        state.subtitles.forEach((sub) => {
+          const actor = state.actors[sub.actorIndex];
+          const start = Math.max(0, Number(sub.startTick) || 0) / TICKS_PER_SECOND;
+          const end = Math.max(start, Math.max(0, Number(sub.endTick) || 0) / TICKS_PER_SECOND);
+          const x1 = (start / audioPlayer.duration) * width;
+          const x2 = (end / audioPlayer.duration) * width;
+          const barW = Math.max(2, x2 - x1);
+          waveCtx.fillStyle = actor ? `${colorFromCode(actor.colorCode)}66` : '#ffffff33';
+          waveCtx.fillRect(x1, height - 22, barW, 18);
+        });
+      }
+
       const progress = Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0
         ? audioPlayer.currentTime / audioPlayer.duration
         : 0;
@@ -354,6 +413,7 @@
       const list = $('actorList');
       list.innerHTML = '';
       state.actors.forEach((actor, idx) => {
+        const isEditing = idx === state.editingActorIndex;
         const card = document.createElement('div');
         card.className = 'actor-card';
         card.innerHTML = `
@@ -364,7 +424,23 @@
               <div class="subtle">${actor.colorCode} • ${actor.minecraftUser || 'No username set'}</div>
             </div>
           </div>
-          <button class="danger" data-remove-actor="${idx}">Remove actor</button>
+          <div class="row">
+            <button data-edit-actor="${idx}">${isEditing ? 'Close edit' : 'Edit actor'}</button>
+            <button class="danger" data-remove-actor="${idx}">Remove actor</button>
+          </div>
+          ${isEditing ? `
+            <div class="row" style="margin-top:8px;">
+              <label>Name
+                <input type="text" data-actor-field="name" data-actor-idx="${idx}" value="${actor.name}" />
+              </label>
+              <label>Color
+                <input type="text" maxlength="2" data-actor-field="colorCode" data-actor-idx="${idx}" value="${actor.colorCode}" />
+              </label>
+              <label>Minecraft user
+                <input type="text" data-actor-field="minecraftUser" data-actor-idx="${idx}" value="${actor.minecraftUser || ''}" />
+              </label>
+            </div>
+          ` : ''}
         `;
         list.appendChild(card);
       });
@@ -391,39 +467,68 @@
       ).join('');
     }
 
+    function renderSubtitleEditor() {
+      const panel = $('subtitleEditor');
+      const idx = state.activeSubtitleIndex;
+      const sub = state.subtitles[idx];
+      if (!sub) {
+        panel.innerHTML = '<p class="subtle">Add a subtitle block to start editing.</p>';
+        refreshPreview();
+        return;
+      }
+      panel.innerHTML = `
+        <h3>Editing block #${idx + 1}</h3>
+        <div class="row">
+          <label>Actor
+            <select data-field="actorIndex" data-idx="${idx}">${actorOptions(sub.actorIndex)}</select>
+          </label>
+          <label>Start tick
+            <input type="number" min="0" step="1" data-field="startTick" data-idx="${idx}" value="${sub.startTick}" />
+          </label>
+          <label>End tick
+            <input type="number" min="0" step="1" data-field="endTick" data-idx="${idx}" value="${sub.endTick}" />
+          </label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button data-set-start="${idx}">Set start = current tick</button>
+          <button data-set-end="${idx}">Set end = current tick</button>
+          <button class="danger" data-remove-subtitle="${idx}">Delete</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label style="flex:1; min-width: 280px;">Line 1
+            <input type="text" data-field="line1" data-idx="${idx}" value="${sub.line1 || ''}" placeholder="Speech line 1" />
+          </label>
+          <label style="flex:1; min-width: 280px;">Line 2
+            <input type="text" data-field="line2" data-idx="${idx}" value="${sub.line2 || ''}" placeholder="Speech line 2" />
+          </label>
+        </div>
+      `;
+      refreshPreview();
+    }
+
     function renderSubtitles() {
+      if (state.subtitles.length && state.activeSubtitleIndex < 0) {
+        state.activeSubtitleIndex = 0;
+      }
       const list = $('subtitleList');
       list.innerHTML = '';
       state.subtitles.forEach((sub, idx) => {
+        const actor = state.actors[sub.actorIndex];
         const card = document.createElement('div');
-        card.className = 'subtitle-card';
+        card.className = `subtitle-card ${idx === state.activeSubtitleIndex ? 'active' : ''}`;
         card.innerHTML = `
           <div class="row">
-            <label>Actor
-              <select data-field="actorIndex" data-idx="${idx}">${actorOptions(sub.actorIndex)}</select>
-            </label>
-            <label>Start tick
-              <input type="number" min="0" step="1" data-field="startTick" data-idx="${idx}" value="${sub.startTick}" />
-            </label>
-            <label>End tick
-              <input type="number" min="0" step="1" data-field="endTick" data-idx="${idx}" value="${sub.endTick}" />
-            </label>
-            <button data-set-start="${idx}">Set start = current tick</button>
-            <button data-set-end="${idx}">Set end = current tick</button>
-            <button class="danger" data-remove-subtitle="${idx}">Delete</button>
-          </div>
-          <div class="row" style="margin-top:8px;">
-            <label style="flex:1; min-width: 300px;">Line 1
-              <input type="text" data-field="line1" data-idx="${idx}" value="${sub.line1 || ''}" placeholder="Speech line 1" />
-            </label>
-            <label style="flex:1; min-width: 300px;">Line 2
-              <input type="text" data-field="line2" data-idx="${idx}" value="${sub.line2 || ''}" placeholder="Speech line 2" />
-            </label>
+            <button data-select-subtitle="${idx}">Edit</button>
+            <strong>#${idx + 1}</strong>
+            <span class="compact">${sub.startTick} → ${sub.endTick} ticks</span>
+            <span class="compact" style="color:${actor ? colorFromCode(actor.colorCode) : '#ffffff'};">${actor ? actor.name : 'No actor'}</span>
+            <span class="compact">${sub.line1 || '(empty line 1)'}</span>
           </div>
         `;
         list.appendChild(card);
       });
-      refreshPreview();
+      renderSubtitleEditor();
+      drawWave();
     }
 
     function addSubtitle() {
@@ -435,6 +540,7 @@
         line1: '',
         line2: ''
       });
+      state.activeSubtitleIndex = state.subtitles.length - 1;
       renderSubtitles();
     }
 
@@ -459,21 +565,21 @@
     }
 
     function refreshPreview() {
-      const first = state.subtitles[0];
-      if (!first) {
-        $('previewLine1').textContent = '§fActor: Line 1';
-        $('previewLine1').style.color = MC_COLORS.f;
+      const current = state.subtitles[state.activeSubtitleIndex];
+      if (!current) {
+        $('previewActor').textContent = 'Actor:';
+        $('previewActor').style.color = MC_COLORS.f;
+        $('previewText1').textContent = 'Line 1';
         $('previewLine2').textContent = 'Line 2';
-        $('previewLine2').style.color = MC_COLORS.f;
         return;
       }
 
-      const actor = state.actors[first.actorIndex];
+      const actor = state.actors[current.actorIndex];
       const color = actor ? colorFromCode(actor.colorCode) : MC_COLORS.f;
-      const line1 = (actor ? `${codeToSection(actor.colorCode)}${actor.name}: ` : '') + (first.line1 || '...');
-      $('previewLine1').textContent = line1;
-      $('previewLine2').textContent = first.line2 || '';
-      $('previewLine1').style.color = color;
+      $('previewActor').textContent = actor ? `${actor.name}:` : 'Actor:';
+      $('previewActor').style.color = color;
+      $('previewText1').textContent = current.line1 || '...';
+      $('previewLine2').textContent = current.line2 || '';
       $('previewLine2').style.color = MC_COLORS.f;
     }
 
@@ -492,7 +598,26 @@
 
     $('addActor').addEventListener('click', addActor);
     $('addSubtitle').addEventListener('click', addSubtitle);
+    $('prevSubtitle').addEventListener('click', () => {
+      if (!state.subtitles.length) return;
+      state.activeSubtitleIndex = Math.max(0, state.activeSubtitleIndex - 1);
+      renderSubtitles();
+    });
+    $('nextSubtitle').addEventListener('click', () => {
+      if (!state.subtitles.length) return;
+      state.activeSubtitleIndex = Math.min(state.subtitles.length - 1, state.activeSubtitleIndex + 1);
+      renderSubtitles();
+    });
     $('generateExport').addEventListener('click', generateExport);
+
+    waveCanvas.addEventListener('click', (e) => {
+      if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
+      const rect = waveCanvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      audioPlayer.currentTime = ratio * audioPlayer.duration;
+      refreshMetrics();
+    });
 
     $('copyExport').addEventListener('click', async () => {
       const text = $('exportOutput').value;
@@ -511,6 +636,8 @@
       const removeSubtitle = target.getAttribute('data-remove-subtitle');
       const setStart = target.getAttribute('data-set-start');
       const setEnd = target.getAttribute('data-set-end');
+      const selectSubtitle = target.getAttribute('data-select-subtitle');
+      const editActor = target.getAttribute('data-edit-actor');
 
       if (removeActor !== null) {
         const idx = Number(removeActor);
@@ -523,20 +650,37 @@
       }
 
       if (removeSubtitle !== null) {
-        state.subtitles.splice(Number(removeSubtitle), 1);
+        const removeIdx = Number(removeSubtitle);
+        state.subtitles.splice(removeIdx, 1);
+        if (!state.subtitles.length) state.activeSubtitleIndex = -1;
+        else if (state.activeSubtitleIndex >= state.subtitles.length) state.activeSubtitleIndex = state.subtitles.length - 1;
+        else if (state.activeSubtitleIndex === removeIdx) state.activeSubtitleIndex = Math.max(0, removeIdx - 1);
         renderSubtitles();
       }
 
       if (setStart !== null) {
         const idx = Number(setStart);
         state.subtitles[idx].startTick = tickFromTime(audioPlayer.currentTime || 0);
-        renderSubtitles();
+        renderSubtitleEditor();
+        drawWave();
       }
 
       if (setEnd !== null) {
         const idx = Number(setEnd);
         state.subtitles[idx].endTick = tickFromTime(audioPlayer.currentTime || 0);
+        renderSubtitleEditor();
+        drawWave();
+      }
+
+      if (selectSubtitle !== null) {
+        state.activeSubtitleIndex = Number(selectSubtitle);
         renderSubtitles();
+      }
+
+      if (editActor !== null) {
+        const idx = Number(editActor);
+        state.editingActorIndex = state.editingActorIndex === idx ? -1 : idx;
+        renderActors();
       }
     });
 
@@ -544,6 +688,22 @@
       const target = e.target;
       const field = target.getAttribute('data-field');
       const idx = target.getAttribute('data-idx');
+      const actorField = target.getAttribute('data-actor-field');
+      const actorIdx = target.getAttribute('data-actor-idx');
+
+      if (actorField !== null && actorIdx !== null) {
+        const actor = state.actors[Number(actorIdx)];
+        if (!actor) return;
+        if (actorField === 'colorCode') {
+          actor.colorCode = target.value.trim();
+        } else {
+          actor[actorField] = target.value;
+        }
+        refreshPreview();
+        drawWave();
+        return;
+      }
+
       if (field === null || idx === null) return;
 
       const sub = state.subtitles[Number(idx)];
@@ -558,6 +718,19 @@
       }
 
       refreshPreview();
+      drawWave();
+    });
+
+    document.body.addEventListener('change', (e) => {
+      const target = e.target;
+      const actorField = target.getAttribute('data-actor-field');
+      const actorIdx = target.getAttribute('data-actor-idx');
+      if (actorField !== 'colorCode' || actorIdx === null) return;
+
+      const actor = state.actors[Number(actorIdx)];
+      if (!actor) return;
+      if (!/^&[0-9a-fA-F]$/.test(actor.colorCode)) actor.colorCode = '&f';
+      renderActors();
     });
 
     drawWave();
