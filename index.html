@@ -502,9 +502,11 @@
       return MC_COLORS[code[1].toLowerCase()] || MC_COLORS.f;
     }
 
-    function codeToSection(code) {
-      if (!code || code.length < 2 || code[0] !== '&') return '§f';
-      return `§${code[1].toLowerCase()}`;
+    function normalizeColorCode(code) {
+      if (!code || code.length < 2) return '&f';
+      const prefix = code[0];
+      if (prefix !== '&' && prefix !== '§') return '&f';
+      return `&${code[1].toLowerCase()}`;
     }
 
     function actorAvatar(username) {
@@ -748,7 +750,7 @@
       sorted.forEach((sub, i) => {
         const actor = state.actors[sub.actorIndex];
         const actorPrefix = actor
-          ? `${codeToSection(actor.colorCode)}${actor.name}: `
+          ? `${normalizeColorCode(actor.colorCode)}${actor.name}:&f `
           : '';
 
         lines.push(`  '${i}':`);
