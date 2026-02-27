@@ -100,6 +100,11 @@
       cursor: pointer;
     }
 
+    #waveCanvas.wave-selected {
+      border-color: #67b3ff;
+      box-shadow: 0 0 0 2px #67b3ff66;
+    }
+
     .metric {
       background: #111722;
       border: 1px solid var(--border);
@@ -235,8 +240,12 @@
         </label>
         <audio id="audioPlayer" controls></audio>
       </div>
-      <canvas id="waveCanvas" width="1150" height="150"></canvas>
-      <p class="subtle" style="margin:8px 0 0;">Click in the waveform to jump the audio. Colored overlays show subtitle ranges by actor color.</p>
+      <canvas id="waveCanvas" width="1150" height="150" tabindex="0"></canvas>
+      <div class="row" style="margin-top:8px;">
+        <button id="playAudio">Reproducir</button>
+        <button id="stopAudio" class="danger">Parar</button>
+      </div>
+      <p class="subtle" style="margin:8px 0 0;">Click in the waveform to jump/select it. Press space to play/pause and use Ctrl + mouse wheel to zoom while selected. Colored overlays show subtitle ranges by actor color.</p>
       <div class="row" style="margin-top:10px;">
         <div class="metric">Current time: <strong id="currentTime">0.000s</strong></div>
         <div class="metric">Current tick: <strong id="currentTick">0</strong></div>
@@ -329,7 +338,41 @@
     const audioPlayer = $('audioPlayer');
     const waveCanvas = $('waveCanvas');
     const waveCtx = waveCanvas.getContext('2d');
+    const waveformView = {
+      zoom: 1,
+      selected: false,
+      minZoom: 1,
+      maxZoom: 30,
+      startSec: 0
+    };
     let saveTimer = null;
+
+    function getViewWindow(duration) {
+      if (!duration || duration <= 0) return duration;
+      return duration / waveformView.zoom;
+    }
+
+    function clampViewStart(duration) {
+      const viewWindow = getViewWindow(duration);
+      const maxStart = Math.max(0, duration - viewWindow);
+      waveformView.startSec = Math.max(0, Math.min(maxStart, waveformView.startSec));
+    }
+
+    function viewRatioToTime(ratio) {
+      const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : 0;
+      if (!duration) return 0;
+      clampViewStart(duration);
+      const viewWindow = getViewWindow(duration);
+      return waveformView.startSec + (Math.max(0, Math.min(1, ratio)) * viewWindow);
+    }
+
+    function toViewRatio(seconds) {
+      const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : 0;
+      if (!duration) return 0;
+      clampViewStart(duration);
+      const viewWindow = getViewWindow(duration);
+      return (seconds - waveformView.startSec) / viewWindow;
+    }
 
     function formatSavedAt(timestamp) {
       if (!timestamp) return 'Autosave active';
@@ -493,7 +536,13 @@
       }
 
       const data = state.audioBuffer.getChannelData(0);
-      const step = Math.ceil(data.length / width);
+      const duration = Number.isFinite(audioPlayer.duration) ? audioPlayer.duration : 0;
+      const safeDuration = duration > 0 ? duration : state.audioBuffer.duration;
+      clampViewStart(safeDuration);
+      const viewWindow = getViewWindow(safeDuration);
+      const startSample = Math.floor((waveformView.startSec / safeDuration) * data.length);
+      const visibleSampleCount = Math.max(1, Math.floor((viewWindow / safeDuration) * data.length));
+      const step = Math.max(1, Math.ceil(visibleSampleCount / width));
       const amp = height / 2;
 
       waveCtx.strokeStyle = '#4ba2ff';
@@ -503,8 +552,8 @@
       for (let i = 0; i < width; i++) {
         let min = 1;
         let max = -1;
-        const start = i * step;
-        const end = Math.min(start + step, data.length);
+        const start = startSample + (i * step);
+        const end = Math.min(start + step, startSample + visibleSampleCount, data.length);
         for (let j = start; j < end; j++) {
           const v = data[j];
           if (v < min) min = v;
@@ -520,8 +569,9 @@
           const actor = state.actors[sub.actorIndex];
           const start = Math.max(0, Number(sub.startTick) || 0) / TICKS_PER_SECOND;
           const end = Math.max(start, Math.max(0, Number(sub.endTick) || 0) / TICKS_PER_SECOND);
-          const x1 = (start / audioPlayer.duration) * width;
-          const x2 = (end / audioPlayer.duration) * width;
+          const x1 = toViewRatio(start) * width;
+          const x2 = toViewRatio(end) * width;
+          if (x2 < 0 || x1 > width) return;
           const barW = Math.max(2, x2 - x1);
           waveCtx.fillStyle = actor ? `${colorFromCode(actor.colorCode)}66` : '#ffffff33';
           waveCtx.fillRect(x1, height - 22, barW, 18);
@@ -529,7 +579,7 @@
       }
 
       const progress = Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0
-        ? audioPlayer.currentTime / audioPlayer.duration
+        ? toViewRatio(audioPlayer.currentTime)
         : 0;
       const x = progress * width;
       waveCtx.strokeStyle = '#ff6060';
@@ -548,6 +598,8 @@
       const arr = await file.arrayBuffer();
       const context = new (window.AudioContext || window.webkitAudioContext)();
       state.audioBuffer = await context.decodeAudioData(arr.slice(0));
+      waveformView.zoom = 1;
+      waveformView.startSec = 0;
       drawWave();
       refreshMetrics();
     }
@@ -765,8 +817,48 @@
       if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
       const rect = waveCanvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
-      const ratio = Math.max(0, Math.min(1, x / rect.width));
-      audioPlayer.currentTime = ratio * audioPlayer.duration;
+      audioPlayer.currentTime = viewRatioToTime(x / rect.width);
+      waveformView.selected = true;
+      waveCanvas.classList.add('wave-selected');
+      waveCanvas.focus();
+      refreshMetrics();
+    });
+
+    waveCanvas.addEventListener('blur', () => {
+      waveformView.selected = false;
+      waveCanvas.classList.remove('wave-selected');
+    });
+
+    waveCanvas.addEventListener('keydown', async (e) => {
+      if (!waveformView.selected || e.code !== 'Space') return;
+      e.preventDefault();
+      if (audioPlayer.paused) await audioPlayer.play();
+      else audioPlayer.pause();
+    });
+
+    waveCanvas.addEventListener('wheel', (e) => {
+      if (!waveformView.selected || !e.ctrlKey || !Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
+      e.preventDefault();
+      const rect = waveCanvas.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const pointerTime = viewRatioToTime(ratio);
+
+      const zoomFactor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      waveformView.zoom = Math.max(waveformView.minZoom, Math.min(waveformView.maxZoom, waveformView.zoom * zoomFactor));
+
+      const newWindow = getViewWindow(audioPlayer.duration);
+      waveformView.startSec = pointerTime - (ratio * newWindow);
+      clampViewStart(audioPlayer.duration);
+      drawWave();
+    }, { passive: false });
+
+    $('playAudio').addEventListener('click', async () => {
+      await audioPlayer.play();
+    });
+
+    $('stopAudio').addEventListener('click', () => {
+      audioPlayer.pause();
+      audioPlayer.currentTime = 0;
       refreshMetrics();
     });
 
