@@ -324,6 +324,25 @@
       '8': '#555555', '9': '#5555FF', 'a': '#55FF55', 'b': '#55FFFF',
       'c': '#FF5555', 'd': '#FF55FF', 'e': '#FFFF55', 'f': '#FFFFFF'
     };
+    const MC_MINIMESSAGE_COLORS = {
+      '0': '<black>',
+      '1': '<dark_blue>',
+      '2': '<dark_green>',
+      '3': '<dark_aqua>',
+      '4': '<dark_red>',
+      '5': '<dark_purple>',
+      '6': '<gold>',
+      '7': '<gray>',
+      '8': '<dark_gray>',
+      '9': '<blue>',
+      'a': '<green>',
+      'b': '<aqua>',
+      'c': '<red>',
+      'd': '<light_purple>',
+      'e': '<yellow>',
+      'f': '<white>',
+      'r': '<reset>'
+    };
 
     const state = {
       audioBuffer: null,
@@ -507,6 +526,26 @@
       const prefix = code[0];
       if (prefix !== '&' && prefix !== '§') return '&f';
       return `&${code[1].toLowerCase()}`;
+    }
+
+    function colorCodeToMiniMessageTag(code) {
+      const normalized = normalizeColorCode(code);
+      const key = normalized[1];
+      return MC_MINIMESSAGE_COLORS[key] || '<white>';
+    }
+
+    function escapeMiniMessageText(text) {
+      return (text || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/</g, '\\<')
+        .replace(/>/g, '\\>');
+    }
+
+    function minecraftCodesToMiniMessage(text) {
+      const escaped = escapeMiniMessageText(text);
+      return escaped.replace(/[&§]([0-9a-fr])/gi, (_, code) => {
+        return MC_MINIMESSAGE_COLORS[code.toLowerCase()] || '';
+      });
     }
 
     function actorAvatar(username) {
@@ -750,14 +789,16 @@
       sorted.forEach((sub, i) => {
         const actor = state.actors[sub.actorIndex];
         const actorPrefix = actor
-          ? `${normalizeColorCode(actor.colorCode)}${actor.name}:&f `
+          ? `${colorCodeToMiniMessageTag(actor.colorCode)}${escapeMiniMessageText(actor.name)}:<reset> `
           : '';
+        const line1Text = actorPrefix + minecraftCodesToMiniMessage(sub.line1 || '');
+        const line2Text = minecraftCodesToMiniMessage(sub.line2 || '');
 
         lines.push(`  '${i}':`);
         lines.push(`    startTick: ${Number(sub.startTick) || 0}`);
         lines.push(`    endTick: ${Number(sub.endTick) || 0}`);
-        lines.push(`    line1: '${sanitizeYamlText(actorPrefix + (sub.line1 || ''))}'`);
-        lines.push(`    line2: '${sanitizeYamlText(sub.line2 || '')}'`);
+        lines.push(`    line1: '${sanitizeYamlText(line1Text)}'`);
+        lines.push(`    line2: '${sanitizeYamlText(line2Text)}'`);
       });
 
       $('exportOutput').value = lines.join('\n');
