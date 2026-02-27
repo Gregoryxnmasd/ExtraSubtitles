@@ -184,6 +184,23 @@
 
     .compact { font-size: 0.85rem; color: var(--muted); }
 
+    .autosave-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    #autosaveStatus {
+      font-size: 0.88rem;
+      color: var(--muted);
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #111722;
+    }
+
     .editor-grid {
       display: grid;
       grid-template-columns: 2fr 1fr;
@@ -275,6 +292,13 @@
 
       <section class="card col-12">
         <h2>5) Export YAML</h2>
+        <div class="autosave-row">
+          <span id="autosaveStatus">Autosave active</span>
+          <button id="downloadBackup">Download backup</button>
+          <button id="importBackup">Import backup</button>
+          <button id="clearLocalData" class="danger">Clear local backup</button>
+          <input id="backupFileInput" type="file" accept="application/json" hidden />
+        </div>
         <textarea id="exportOutput" readonly></textarea>
       </section>
     </div>
@@ -282,6 +306,9 @@
 
   <script>
     const TICKS_PER_SECOND = 20;
+    const STORAGE_KEY = 'tickSubtitleStudioProject.v1';
+    const STORAGE_HISTORY_KEY = 'tickSubtitleStudioHistory.v1';
+    const MAX_HISTORY_ENTRIES = 5;
     const MC_COLORS = {
       '0': '#000000', '1': '#0000AA', '2': '#00AA00', '3': '#00AAAA',
       '4': '#AA0000', '5': '#AA00AA', '6': '#FFAA00', '7': '#AAAAAA',
@@ -302,6 +329,122 @@
     const audioPlayer = $('audioPlayer');
     const waveCanvas = $('waveCanvas');
     const waveCtx = waveCanvas.getContext('2d');
+    let saveTimer = null;
+
+    function formatSavedAt(timestamp) {
+      if (!timestamp) return 'Autosave active';
+      const date = new Date(timestamp);
+      if (Number.isNaN(date.getTime())) return 'Autosave active';
+      return `Saved ${date.toLocaleString()}`;
+    }
+
+    function setAutosaveStatus(message, isError = false) {
+      const badge = $('autosaveStatus');
+      badge.textContent = message;
+      badge.style.color = isError ? '#ff8f8f' : 'var(--muted)';
+      badge.style.borderColor = isError ? '#8a3838' : 'var(--border)';
+    }
+
+    function serializeState() {
+      return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        actors: state.actors,
+        subtitles: state.subtitles,
+        activeSubtitleIndex: state.activeSubtitleIndex,
+        editingActorIndex: state.editingActorIndex
+      };
+    }
+
+    function applySerializedState(data) {
+      state.actors = Array.isArray(data.actors) ? data.actors : [];
+      state.subtitles = Array.isArray(data.subtitles) ? data.subtitles : [];
+      state.activeSubtitleIndex = Number.isInteger(data.activeSubtitleIndex) ? data.activeSubtitleIndex : -1;
+      state.editingActorIndex = Number.isInteger(data.editingActorIndex) ? data.editingActorIndex : -1;
+
+      if (!state.subtitles.length) state.activeSubtitleIndex = -1;
+      if (state.activeSubtitleIndex >= state.subtitles.length) {
+        state.activeSubtitleIndex = state.subtitles.length - 1;
+      }
+      if (state.editingActorIndex >= state.actors.length) {
+        state.editingActorIndex = -1;
+      }
+    }
+
+    function saveProject(reason = 'autosave') {
+      try {
+        const snapshot = serializeState();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+
+        const historyRaw = localStorage.getItem(STORAGE_HISTORY_KEY);
+        const history = historyRaw ? JSON.parse(historyRaw) : [];
+        if (Array.isArray(history)) {
+          history.push(snapshot);
+          while (history.length > MAX_HISTORY_ENTRIES) history.shift();
+          localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(history));
+        }
+        setAutosaveStatus(`${formatSavedAt(snapshot.savedAt)} (${reason})`);
+      } catch {
+        setAutosaveStatus('Autosave failed. Download a backup file now.', true);
+      }
+    }
+
+    function scheduleSave(reason = 'autosave') {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => saveProject(reason), 200);
+    }
+
+    function restoreProject() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          setAutosaveStatus('Autosave active (new project)');
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        applySerializedState(parsed);
+        renderActors();
+        renderSubtitles();
+        setAutosaveStatus(`${formatSavedAt(parsed.savedAt)} (restored)`);
+      } catch {
+        setAutosaveStatus('Could not restore local backup. You can import one manually.', true);
+      }
+    }
+
+    function downloadBackupFile() {
+      const snapshot = serializeState();
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const stamp = snapshot.savedAt.replace(/[:.]/g, '-');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `subtitle-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setAutosaveStatus(`${formatSavedAt(snapshot.savedAt)} (backup downloaded)`);
+    }
+
+    async function importBackupFile(file) {
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        applySerializedState(parsed);
+        renderActors();
+        renderSubtitles();
+        saveProject('imported');
+      } catch {
+        alert('Invalid backup file.');
+      }
+    }
+
+    function clearLocalBackup() {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(STORAGE_HISTORY_KEY);
+      setAutosaveStatus('Local backup cleared');
+    }
 
     function sanitizeYamlText(text) {
       return (text || '').replace(/'/g, "''").replace(/\n/g, ' ');
@@ -458,6 +601,7 @@
       $('actorName').value = '';
       $('actorMinecraftUser').value = '';
       renderActors();
+      scheduleSave('actor added');
     }
 
     function actorOptions(selected) {
@@ -542,6 +686,7 @@
       });
       state.activeSubtitleIndex = state.subtitles.length - 1;
       renderSubtitles();
+      scheduleSave('subtitle added');
     }
 
     function generateExport() {
@@ -609,6 +754,12 @@
       renderSubtitles();
     });
     $('generateExport').addEventListener('click', generateExport);
+    $('downloadBackup').addEventListener('click', downloadBackupFile);
+    $('importBackup').addEventListener('click', () => $('backupFileInput').click());
+    $('backupFileInput').addEventListener('change', (e) => importBackupFile(e.target.files[0]));
+    $('clearLocalData').addEventListener('click', () => {
+      if (confirm('Delete all local backups for this project?')) clearLocalBackup();
+    });
 
     waveCanvas.addEventListener('click', (e) => {
       if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
@@ -647,6 +798,7 @@
           else if (sub.actorIndex > idx) sub.actorIndex -= 1;
         });
         renderActors();
+        scheduleSave('actor removed');
       }
 
       if (removeSubtitle !== null) {
@@ -656,6 +808,7 @@
         else if (state.activeSubtitleIndex >= state.subtitles.length) state.activeSubtitleIndex = state.subtitles.length - 1;
         else if (state.activeSubtitleIndex === removeIdx) state.activeSubtitleIndex = Math.max(0, removeIdx - 1);
         renderSubtitles();
+        scheduleSave('subtitle removed');
       }
 
       if (setStart !== null) {
@@ -663,6 +816,7 @@
         state.subtitles[idx].startTick = tickFromTime(audioPlayer.currentTime || 0);
         renderSubtitleEditor();
         drawWave();
+        scheduleSave('start updated');
       }
 
       if (setEnd !== null) {
@@ -670,11 +824,13 @@
         state.subtitles[idx].endTick = tickFromTime(audioPlayer.currentTime || 0);
         renderSubtitleEditor();
         drawWave();
+        scheduleSave('end updated');
       }
 
       if (selectSubtitle !== null) {
         state.activeSubtitleIndex = Number(selectSubtitle);
         renderSubtitles();
+        scheduleSave('subtitle selected');
       }
 
       if (editActor !== null) {
@@ -701,6 +857,7 @@
         }
         refreshPreview();
         drawWave();
+        scheduleSave('actor updated');
         return;
       }
 
@@ -719,6 +876,7 @@
 
       refreshPreview();
       drawWave();
+      scheduleSave('subtitle updated');
     });
 
     document.body.addEventListener('change', (e) => {
@@ -731,8 +889,14 @@
       if (!actor) return;
       if (!/^&[0-9a-fA-F]$/.test(actor.colorCode)) actor.colorCode = '&f';
       renderActors();
+      scheduleSave('actor color normalized');
     });
 
+    window.addEventListener('beforeunload', () => {
+      saveProject('before unload');
+    });
+
+    restoreProject();
     drawWave();
     refreshMetrics();
   </script>
