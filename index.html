@@ -100,6 +100,26 @@
       cursor: pointer;
     }
 
+    #waveTooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 20;
+      background: rgba(12, 16, 26, 0.92);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 0.78rem;
+      padding: 4px 8px;
+      transform: translate(-50%, calc(-100% - 10px));
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+      opacity: 0;
+      transition: opacity 0.08s ease;
+    }
+
+    #waveTooltip.visible {
+      opacity: 1;
+    }
+
     #waveCanvas.wave-selected {
       border-color: #67b3ff;
       box-shadow: 0 0 0 2px #67b3ff66;
@@ -245,7 +265,7 @@
         <button id="playAudio">Reproducir</button>
         <button id="stopAudio" class="danger">Parar</button>
       </div>
-      <p class="subtle" style="margin:8px 0 0;">Click in the waveform to jump/select it. Press space to play/pause and use Ctrl + mouse wheel to zoom while selected. Colored overlays show subtitle ranges by actor color.</p>
+      <p class="subtle" style="margin:8px 0 0;">Click or drag in the waveform to scrub with the red line. Hover it to see the ticks under the cursor. Press space to play/pause and use Ctrl + mouse wheel to zoom while selected. Colored overlays show subtitle ranges by actor color.</p>
       <div class="row" style="margin-top:10px;">
         <div class="metric">Current time: <strong id="currentTime">0.000s</strong></div>
         <div class="metric">Current tick: <strong id="currentTick">0</strong></div>
@@ -364,7 +384,23 @@
       maxZoom: 30,
       startSec: 0
     };
+    const waveTooltip = document.createElement('div');
+    waveTooltip.id = 'waveTooltip';
+    document.body.appendChild(waveTooltip);
+    let isScrubbingWaveform = false;
     let saveTimer = null;
+
+    function setWaveTooltip(clientX, clientY, seconds) {
+      const tick = tickFromTime(seconds);
+      waveTooltip.textContent = `${tick} ticks`;
+      waveTooltip.style.left = `${clientX}px`;
+      waveTooltip.style.top = `${clientY}px`;
+      waveTooltip.classList.add('visible');
+    }
+
+    function hideWaveTooltip() {
+      waveTooltip.classList.remove('visible');
+    }
 
     function getViewWindow(duration) {
       if (!duration || duration <= 0) return duration;
@@ -614,8 +650,8 @@
           const x2 = toViewRatio(end) * width;
           if (x2 < 0 || x1 > width) return;
           const barW = Math.max(2, x2 - x1);
-          waveCtx.fillStyle = actor ? `${colorFromCode(actor.colorCode)}66` : '#ffffff33';
-          waveCtx.fillRect(x1, height - 22, barW, 18);
+          waveCtx.fillStyle = actor ? `${colorFromCode(actor.colorCode)}22` : '#ffffff22';
+          waveCtx.fillRect(x1, 0, barW, height);
         });
       }
 
@@ -856,15 +892,49 @@
       if (confirm('Delete all local backups for this project?')) clearLocalBackup();
     });
 
-    waveCanvas.addEventListener('click', (e) => {
+    function scrubToClientX(clientX) {
       if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
       const rect = waveCanvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      audioPlayer.currentTime = viewRatioToTime(x / rect.width);
+      const ratio = (clientX - rect.left) / rect.width;
+      audioPlayer.currentTime = viewRatioToTime(ratio);
+      refreshMetrics();
+    }
+
+    waveCanvas.addEventListener('click', (e) => {
+      if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
+      scrubToClientX(e.clientX);
       waveformView.selected = true;
       waveCanvas.classList.add('wave-selected');
       waveCanvas.focus();
-      refreshMetrics();
+    });
+
+    waveCanvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (!Number.isFinite(audioPlayer.duration) || audioPlayer.duration <= 0) return;
+      isScrubbingWaveform = true;
+      scrubToClientX(e.clientX);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      const rect = waveCanvas.getBoundingClientRect();
+      const inWaveBounds = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+      if (inWaveBounds) {
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const hoverTime = viewRatioToTime(ratio);
+        setWaveTooltip(e.clientX, rect.top + 2, hoverTime);
+      } else {
+        hideWaveTooltip();
+      }
+
+      if (isScrubbingWaveform) scrubToClientX(e.clientX);
+    });
+
+    window.addEventListener('mouseup', () => {
+      isScrubbingWaveform = false;
+    });
+
+    waveCanvas.addEventListener('mouseleave', () => {
+      if (!isScrubbingWaveform) hideWaveTooltip();
     });
 
     waveCanvas.addEventListener('blur', () => {
