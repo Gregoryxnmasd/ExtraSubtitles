@@ -87,8 +87,24 @@
     button:hover { background: #243757; }
 
     button.good { background: #1f5239; }
+    button.good:hover { background: #256344; }
     button.warn { background: #5a4623; }
+    button.warn:hover { background: #70572c; }
     button.danger { background: #5a2a2a; }
+    button.danger:hover { background: #733535; }
+
+    .player-center {
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .player-toggle {
+      font-size: 1.2rem;
+      font-weight: 700;
+      padding: 16px 36px;
+      border-radius: 12px;
+      min-width: 240px;
+    }
 
     .player-center {
       justify-content: center;
@@ -978,7 +994,11 @@
     }, { passive: false });
 
     function updateToggleAudioLabel() {
-      $('toggleAudio').textContent = audioPlayer.paused ? 'Reproducir' : 'Pausar';
+      const toggleButton = $('toggleAudio');
+      const isPaused = audioPlayer.paused;
+      toggleButton.textContent = isPaused ? 'Reproducir' : 'Pausar';
+      toggleButton.classList.toggle('good', isPaused);
+      toggleButton.classList.toggle('danger', !isPaused);
     }
 
     $('toggleAudio').addEventListener('click', async () => {
