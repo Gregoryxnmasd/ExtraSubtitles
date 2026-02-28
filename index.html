@@ -90,6 +90,19 @@
     button.warn { background: #5a4623; }
     button.danger { background: #5a2a2a; }
 
+    .player-center {
+      justify-content: center;
+      margin-top: 10px;
+    }
+
+    .player-toggle {
+      font-size: 1.2rem;
+      font-weight: 700;
+      padding: 16px 36px;
+      border-radius: 12px;
+      min-width: 240px;
+    }
+
     #waveCanvas {
       width: 100%;
       height: 130px;
@@ -261,9 +274,8 @@
         <audio id="audioPlayer" controls></audio>
       </div>
       <canvas id="waveCanvas" width="1150" height="150" tabindex="0"></canvas>
-      <div class="row" style="margin-top:8px;">
-        <button id="playAudio">Reproducir</button>
-        <button id="stopAudio" class="danger">Parar</button>
+      <div class="row player-center">
+        <button id="toggleAudio" class="good player-toggle">Reproducir</button>
       </div>
       <p class="subtle" style="margin:8px 0 0;">Click or drag in the waveform to scrub with the red line. Hover it to see the ticks under the cursor. Press space to play/pause and use Ctrl + mouse wheel to zoom while selected. Colored overlays show subtitle ranges by actor color.</p>
       <div class="row" style="margin-top:10px;">
@@ -965,15 +977,18 @@
       drawWave();
     }, { passive: false });
 
-    $('playAudio').addEventListener('click', async () => {
-      await audioPlayer.play();
+    function updateToggleAudioLabel() {
+      $('toggleAudio').textContent = audioPlayer.paused ? 'Reproducir' : 'Pausar';
+    }
+
+    $('toggleAudio').addEventListener('click', async () => {
+      if (audioPlayer.paused) await audioPlayer.play();
+      else audioPlayer.pause();
     });
 
-    $('stopAudio').addEventListener('click', () => {
-      audioPlayer.pause();
-      audioPlayer.currentTime = 0;
-      refreshMetrics();
-    });
+    audioPlayer.addEventListener('play', updateToggleAudioLabel);
+    audioPlayer.addEventListener('pause', updateToggleAudioLabel);
+    audioPlayer.addEventListener('ended', updateToggleAudioLabel);
 
     $('copyExport').addEventListener('click', async () => {
       const text = $('exportOutput').value;
@@ -1104,6 +1119,7 @@
     restoreProject();
     drawWave();
     refreshMetrics();
+    updateToggleAudioLabel();
   </script>
 </body>
 </html>
